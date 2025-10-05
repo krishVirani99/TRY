@@ -20,9 +20,9 @@ public class InterlockingImpl implements Interlocking {
     }
     private static boolean isFreightEntry(int s) { return s == 3 || s == 11; }
 
-    private static boolean isPassengerCrossMove(int a, int b) { return (a==6 && b==9) || (a==9 && b==6); }
-    private static boolean isFreightCrossMove  (int a, int b) { return (a==7 && b==11)|| (a==11&& b==7); }
+    private static boolean isFreightCrossMove(int a, int b) { return (a==7 && b==11) || (a==11 && b==7); }
 
+    // Passenger presence near the diamond crossing → freight must yield
     private boolean passengerStagedAtCross() {
         for (TrainInfo ti : trains.values()) {
             if (ti.type == TrainType.PASSENGER) {
@@ -37,6 +37,7 @@ public class InterlockingImpl implements Interlocking {
         return SectionGraph.neighbors(section, freight);
     }
 
+    // BFS from start to goal, return FIRST hop after start on a shortest path
     private Integer nextHop(int start, int goal, boolean freight) {
         if (start == goal) return goal;
         java.util.Set<Integer> vis = new java.util.HashSet<>();
@@ -64,25 +65,23 @@ public class InterlockingImpl implements Interlocking {
         if (ti == null) return false;
         int curr = ti.section;
 
+        // Stay on the correct network
         if (ti.type == TrainType.FREIGHT && !SectionGraph.isFreightSection(next)) return false;
         if (ti.type == TrainType.PASSENGER && !SectionGraph.isPassengerSection(next)) return false;
 
         boolean freight = (ti.type == TrainType.FREIGHT);
         if (!neighbors(curr, freight).contains(next)) return false;
 
+        // Capacity
         if (occ.containsKey(next)) return false;
 
+        // Priority at the passenger/freight diamond: block freight if passenger staged
         if (freight && isFreightCrossMove(curr, next) && passengerStagedAtCross()) return false;
 
         occ.remove(curr);
         occ.put(next, id);
         ti.section = next;
         return true;
-    }
-
-    private Integer where(String id) {
-        TrainInfo ti = trains.get(id);
-        return (ti == null || ti.section < 0) ? null : ti.section;
     }
 
     // ===== Grader API =====
@@ -93,9 +92,11 @@ public class InterlockingImpl implements Interlocking {
         if (trains.containsKey(name)) return false;
         if (occ.containsKey(entrySection)) return false;
 
+        // Infer type from entry; direction from entry side
         TrainType type = isFreightEntry(entrySection) ? TrainType.FREIGHT : TrainType.PASSENGER;
         Direction dir  = isNorthEntry(entrySection) ? Direction.NORTH : Direction.SOUTH;
 
+        // Validate entry on proper network
         if (type == TrainType.FREIGHT && !SectionGraph.isFreightSection(entrySection)) return false;
         if (type == TrainType.PASSENGER && !SectionGraph.isPassengerSection(entrySection)) return false;
 
@@ -112,6 +113,7 @@ public class InterlockingImpl implements Interlocking {
 
         for (String id : trainNames) {
             if (id == null) continue;
+
             TrainInfo ti = trains.get(id);
             if (ti == null) continue;
             int curr = ti.section;
@@ -120,7 +122,8 @@ public class InterlockingImpl implements Interlocking {
             Integer goal = exitOf.get(id);
             if (goal == null) continue;
 
-            if (curr == goal) { // exit now
+            // If already on the goal, exit immediately
+            if (curr == goal) {
                 occ.remove(curr);
                 ti.section = -1;
                 moved++;
@@ -129,7 +132,14 @@ public class InterlockingImpl implements Interlocking {
 
             boolean freight = (ti.type == TrainType.FREIGHT);
             Integer next = nextHop(curr, goal, freight);
-            if (next != null && tryMove(id, next)) moved++;
+            if (next != null && tryMove(id, next)) {
+                moved++;
+                // If we just stepped onto the goal section, exit immediately
+                if (ti.section == goal) {
+                    occ.remove(goal);
+                    ti.section = -1;
+                }
+            }
         }
         return moved;
     }

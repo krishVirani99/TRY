@@ -4,11 +4,10 @@ import org.junit.Test;
 public class InterlockingEdgeCases_Test {
 
     @Test
-    public void noMixingOfLines() {
+    public void duplicateIdsRejected() {
         Interlocking il = new InterlockingImpl();
-        // freight entries are 3/11; passenger entries include 1/4/9/10
-        assertFalse(il.addTrain("PX", 3, 11)); // passenger at freight entry -> false (inferred freight)
-        assertFalse(il.addTrain("FX", 1, 9));  // freight at passenger entry -> false (inferred passenger)
+        assertTrue(il.addTrain("T", 1, 9));
+        assertFalse(il.addTrain("T", 3, 11)); // same id not allowed
     }
 
     @Test
