@@ -1,4 +1,4 @@
-import java.util.*;
+﻿import java.util.*;
 
 /**
  * Section-level graph and constraints loaded from configs/islington.json
@@ -99,3 +99,4 @@ class SectionGraph {
         return Objects.equals(lineOfSection.get(a), lineOfSection.get(b));
     }
 }
+
