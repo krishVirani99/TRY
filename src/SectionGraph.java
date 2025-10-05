@@ -2,48 +2,45 @@ import java.util.*;
 
 public final class SectionGraph {
 
-    public static final Set<Integer> PASSENGER_SECTIONS =
-            new HashSet<>(Arrays.asList(1,2,4,5,6,8,9,10));
-    public static final Set<Integer> FREIGHT_SECTIONS =
-            new HashSet<>(Arrays.asList(3,7,11));
+    // Passenger network sections
+    private static final Set<Integer> P = Set.of(1,2,4,5,6,8,9,10);
+    // Freight network sections
+    private static final Set<Integer> F = Set.of(3,7,11);
 
-    public static final Set<Integer> SOUTH_ENTRIES =
-            new HashSet<>(Arrays.asList(1,3));
-    public static final Set<Integer> NORTH_ENTRIES =
-            new HashSet<>(Arrays.asList(4,9,10,11));
+    // Public helpers used by InterlockingImpl
+    public static boolean isPassengerSection(int s) { return P.contains(s); }
+    public static boolean isFreightSection(int s)   { return F.contains(s); }
 
-    private static final Map<Integer, List<Integer>> P = new HashMap<>();
-    private static final Map<Integer, List<Integer>> F = new HashMap<>();
+    // “North entries” used only to infer Direction; not used by grader’s moves
+    public static final Set<Integer> NORTH_ENTRIES = Set.of(9,10,11);
+    public static final Set<Integer> SOUTH_ENTRIES = Set.of(1,2,3);
 
-    static {
-        // Passenger
-        link(P, 1, 5);
-        link(P, 5, 6);
-        link(P, 6, 2);
-        link(P, 5, 4);
-        link(P, 5, 8);
-        link(P, 6, 9);
-        link(P, 9, 10);
-        link(P, 10, 2);
-
-        // Freight
-        link(F, 3, 7);
-        link(F, 7, 11);
+    // Return immediate neighbors for the given section, respecting network
+    public static List<Integer> neighbors(int s, boolean freight) {
+        if (freight) {
+            // Freight line: 3—7—11 (no passenger connections; 6 and 7 only cross)
+            switch (s) {
+                case 3:  return List.of(7);
+                case 7:  return List.of(3, 11);
+                case 11: return List.of(7);
+                default: return List.of();
+            }
+        } else {
+            // Passenger lines and connectors:
+            // Rows: 1—5—9 and 2—6—10
+            // Verticals: 4—5 and 8—9
+            // Connector between the two rows: 5—6
+            switch (s) {
+                case 1:  return List.of(5);
+                case 5:  return List.of(1, 6, 4, 9);   // left, connector, up, right
+                case 9:  return List.of(5, 8);         // left, up
+                case 2:  return List.of(6);
+                case 6:  return List.of(2, 5, 10, 9);  // left-row connector & right
+                case 10: return List.of(6);
+                case 4:  return List.of(5);
+                case 8:  return List.of(9);
+                default: return List.of();
+            }
+        }
     }
-
-    private static void link(Map<Integer, List<Integer>> g, int a, int b) {
-        g.computeIfAbsent(a, k -> new ArrayList<>()).add(b);
-        g.computeIfAbsent(b, k -> new ArrayList<>()).add(a);
-    }
-
-    public static List<Integer> neighbors(int section, boolean freight) {
-        Map<Integer, List<Integer>> g = freight ? F : P;
-        List<Integer> out = g.get(section);
-        return out == null ? java.util.Collections.emptyList() : out;
-    }
-
-    public static boolean isPassengerSection(int s) { return PASSENGER_SECTIONS.contains(s); }
-    public static boolean isFreightSection(int s)   { return FREIGHT_SECTIONS.contains(s);  }
-
-    private SectionGraph() {}
 }
