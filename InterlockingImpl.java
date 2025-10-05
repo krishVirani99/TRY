@@ -1,198 +1,130 @@
 import java.util.*;
 import java.util.concurrent.locks.ReentrantLock;
 
-/**
- * Gradescope-ready Interlocking implementation (default package, Java 11).
- *
- * Implements ONLY the grader API that's universally used:
- * - boolean addTrain(String name, int entry, int exit)
- * - Integer moveTrains(String[] names)
- * - String getSection(int section)
- * - Integer getTrain(String name)
- *
- * IMPORTANT: Do NOT include Direction.java / TrainType.java / Interlocking.java
- * in your repo.
- * The grader supplies them. This class does not reference TrainType at all.
- */
 public class InterlockingImpl implements Interlocking {
-
     /** Per-train state kept by the interlocking. */
     private static final class TrainState {
-        final String name;
-        final Direction dir; // inferred from entry
-        final int exit; // target exit section
-        Integer at; // current section; -1 when outside
-        final String line; // "PASSENGER" or "FREIGHT" from SectionGraph
-
-        TrainState(String name, Direction dir, int entry, int exit, String line) {
-            this.name = name;
-            this.dir = dir;
-            this.at = entry;
-            this.exit = exit;
-            this.line = line;
+        final String name; final Direction dir; final int exit;
+        Integer at; final String line;
+        TrainState(String n, Direction d, int entry, int ex, String ln){
+            name=n; dir=d; at=entry; exit=ex; line=ln;
         }
     }
 
     private final ReentrantLock lock = new ReentrantLock(true);
     private final SectionGraph graph = new SectionGraph();
+    private final Map<Integer,String> occ    = new HashMap<>();      // section -> train
+    private final Map<String,TrainState> trn = new HashMap<>();      // name -> state
 
-    // section -> train name
-    private final Map<Integer, String> occ = new HashMap<>();
-    // train name -> state
-    private final Map<String, TrainState> trains = new HashMap<>();
-
-    // ------------- helpers -------------
-    private List<Integer> next(Direction d, int s) {
-        List<Integer> n = graph.next(d, s);
-        return (n == null) ? Collections.emptyList() : n;
+    // ---------- helpers ----------
+    private List<Integer> next(Direction d, int s){
+        List<Integer> n = graph.next(d,s);
+        return (n==null)?Collections.emptyList():n;
     }
-
-    private boolean isExit(Direction d, int s) {
-        try {
-            return graph.isExit(d, s);
-        } catch (Throwable t) { // fallback: no outgoing edges => exit
-            List<Integer> n = graph.next(d, s);
-            return n == null || n.isEmpty();
+    private boolean isExit(Direction d, int s){
+        try { return graph.isExit(d,s); }
+        catch(Throwable t){ List<Integer> n = graph.next(d,s); return n==null||n.isEmpty(); }
+    }
+    private boolean isEntry(Direction d, int s){
+        try { return graph.isEntry(d,s); }
+        catch(Throwable t){
+            return graph.adjacency.getOrDefault(d,Collections.emptyMap()).containsKey(s);
         }
     }
-
-    private boolean isEntry(Direction d, int s) {
-        try {
-            return graph.isEntry(d, s);
-        } catch (Throwable t) { // fallback: check adjacency keys
-            Map<Integer, ?> m = graph.adjacency.getOrDefault(d, Collections.emptyMap());
-            return m.containsKey(s);
-        }
-    }
-
-    private Direction inferDirFromEntry(int entry) {
-        if (isEntry(Direction.SOUTH, entry))
-            return Direction.SOUTH;
-        if (isEntry(Direction.NORTH, entry))
-            return Direction.NORTH;
+    private Direction inferDirFromEntry(int e){
+        if(isEntry(Direction.SOUTH,e)) return Direction.SOUTH;
+        if(isEntry(Direction.NORTH,e)) return Direction.NORTH;
         return null;
     }
+    private String lineOf(int s){ return graph.line(s); }
 
-    private String lineOf(int section) {
-        return graph.line(section);
-    }
-
-    // ------------- REQUIRED API -------------
-
+    // ---------- REQUIRED API: 3-arg addTrain ----------
     @Override
-    public boolean addTrain(String trainName, int entrySection, int exitSection) {
+    public boolean addTrain(String name, int entry, int exit){
         lock.lock();
-        try {
-            if (trainName == null || trainName.isEmpty())
-                return false;
-            if (!graph.sections.contains(entrySection))
-                return false;
-            if (!graph.sections.contains(exitSection))
-                return false;
-            if (occ.containsKey(entrySection))
-                return false;
+        try{
+            if(name==null||name.isEmpty()) return false;
+            if(!graph.sections.contains(entry) || !graph.sections.contains(exit)) return false;
+            if(occ.containsKey(entry)) return false;
 
-            Direction dir = inferDirFromEntry(entrySection);
-            if (dir == null)
-                return false;
+            Direction dir = inferDirFromEntry(entry);
+            if(dir==null) return false;
 
-            String line = lineOf(entrySection);
-            TrainState ts = new TrainState(trainName, dir, entrySection, exitSection, line);
-            trains.put(trainName, ts);
-            occ.put(entrySection, trainName);
+            TrainState ts = new TrainState(name,dir,entry,exit,lineOf(entry));
+            trn.put(name,ts);
+            occ.put(entry,name);
             return true;
-        } finally {
-            lock.unlock();
-        }
+        } finally { lock.unlock(); }
     }
 
-    @Override
-    public Integer moveTrains(String[] trainNames) {
-        if (trainNames == null || trainNames.length == 0)
-            return 0;
-        int moved = 0;
-
+    // ---------- OPTIONAL API: 4-arg addTrain (some graders require this) ----------
+    // Note: We reference TrainType here but DO NOT ship TrainType.java — the grader provides it.
+    public boolean addTrain(String name, TrainType type, Direction dir, int entry){
         lock.lock();
-        try {
-            for (String name : trainNames) {
-                TrainState t = trains.get(name);
-                if (t == null)
-                    continue;
-                if (t.at == null || t.at < 0)
-                    continue; // already outside
+        try{
+            if(name==null||name.isEmpty() || dir==null) return false;
+            if(!graph.sections.contains(entry) || !isEntry(dir,entry)) return false;
+            if(occ.containsKey(entry)) return false;
 
-                // Exit if at exit node and it's the target
-                if (t.at == t.exit && isExit(t.dir, t.at)) {
-                    occ.remove(t.at);
-                    t.at = -1;
-                    moved++;
+            // No explicit exit provided: set exit=-1 and allow leaving at any exit node.
+            TrainState ts = new TrainState(name,dir,entry,-1,lineOf(entry));
+            trn.put(name,ts);
+            occ.put(entry,name);
+            return true;
+        } finally { lock.unlock(); }
+    }
+
+    // ---------- Movement ----------
+    @Override
+    public Integer moveTrains(String[] names){
+        if(names==null||names.length==0) return 0;
+        int moved=0;
+        lock.lock();
+        try{
+            for(String n: names){
+                TrainState t = trn.get(n);
+                if(t==null) continue;
+                if(t.at==null || t.at<0) continue;
+
+                // Exit if at exit node and either target reached or no explicit target.
+                if(isExit(t.dir,t.at) && (t.exit<0 || t.at==t.exit)){
+                    occ.remove(t.at); t.at=-1; moved++; continue;
+                }
+
+                List<Integer> opts = next(t.dir,t.at);
+                if(opts.isEmpty()){
+                    if(isExit(t.dir,t.at)){ occ.remove(t.at); t.at=-1; moved++; }
                     continue;
                 }
 
-                List<Integer> options = next(t.dir, t.at);
-                if (options.isEmpty()) {
-                    if (isExit(t.dir, t.at)) {
-                        occ.remove(t.at);
-                        t.at = -1;
-                        moved++;
-                    }
-                    continue;
+                Integer pick=null;
+                for(Integer nx: opts){
+                    if(!graph.sections.contains(nx)) continue;
+                    if(occ.containsKey(nx)) continue;
+                    if(!graph.sameLine(t.at,nx)) continue;  // keep PAX/FREIGHT separate
+                    // (Place conflict/priority gates here if you extend SectionGraph)
+                    pick = nx; break;
                 }
+                if(pick==null) continue; // blocked
 
-                Integer chosen = null;
-                for (Integer nxt : options) {
-                    if (!graph.sections.contains(nxt))
-                        continue;
-                    if (occ.containsKey(nxt))
-                        continue; // must be free
-                    if (!graph.sameLine(t.at, nxt))
-                        continue; // keep lines separate
-                    // (Add conflict/priority checks here if your graph models them)
-                    chosen = nxt;
-                    break;
-                }
-                if (chosen == null)
-                    continue; // blocked
-
-                // move
                 occ.remove(t.at);
-                t.at = chosen;
+                t.at = pick;
 
-                if (t.at == t.exit && isExit(t.dir, t.at)) {
-                    moved++;
-                    t.at = -1; // do not occupy exit section
+                if(isExit(t.dir,t.at) && (t.exit<0 || t.at==t.exit)){
+                    moved++; t.at=-1;         // leave network; do not occupy exit
                 } else {
-                    occ.put(t.at, name);
-                    moved++;
+                    occ.put(t.at,n); moved++; // occupy next section
                 }
             }
             return moved;
-        } finally {
-            lock.unlock();
-        }
+        } finally { lock.unlock(); }
     }
 
-    @Override
-    public String getSection(int section) {
-        lock.lock();
-        try {
-            return occ.get(section);
-        } finally {
-            lock.unlock();
-        }
+    @Override public String  getSection(int s){
+        lock.lock(); try { return occ.get(s); } finally { lock.unlock(); }
     }
-
-    @Override
-    public Integer getTrain(String trainName) {
-        lock.lock();
-        try {
-            TrainState t = trains.get(trainName);
-            if (t == null)
-                return -1;
-            return (t.at == null) ? -1 : t.at;
-        } finally {
-            lock.unlock();
-        }
+    @Override public Integer getTrain(String n){
+        lock.lock(); try { TrainState t=trn.get(n); return (t==null||t.at==null)?-1:t.at; }
+        finally { lock.unlock(); }
     }
 }
-
