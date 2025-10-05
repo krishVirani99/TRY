@@ -1,0 +1,11 @@
+﻿*.class
+/out/
+/bin/
+/target/
+/build/
+.idea/
+.vscode/
+*.iml
+.DS_Store
+lib/
+*.jar
