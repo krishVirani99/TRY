@@ -1,4 +1,4 @@
-﻿
+
 import java.util.*;
 
 /** Minimal Petri net engine used to express interlocking resources. */

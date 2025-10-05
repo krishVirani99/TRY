@@ -1,4 +1,4 @@
-﻿import java.util.*;
+import java.util.*;
 
 /**
  * Section-level graph and constraints loaded from configs/islington.json
